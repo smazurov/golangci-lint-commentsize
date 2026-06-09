@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"strings"
 	"testing"
 
 	"golang.org/x/tools/go/analysis"
@@ -16,9 +17,62 @@ func TestAnalyzer(t *testing.T) {
 	analysistest.Run(t, analysistest.TestData(), commentsize.New(3), "a")
 }
 
-// TestBlockComment covers what analysistest cannot: a multi-line /* */ block,
-// whose want directive would otherwise be parsed as the expectation itself.
-func TestBlockComment(t *testing.T) {
+// diagnosticsFor runs the analyzer over src and returns the raw diagnostics so
+// a test can inspect the reported range, not just the message text.
+func diagnosticsFor(t *testing.T, src string, maxLines int) ([]analysis.Diagnostic, *token.FileSet) {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, "x.go", src, parser.ParseComments)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var diags []analysis.Diagnostic
+	az := commentsize.New(maxLines)
+	pass := &analysis.Pass{
+		Analyzer: az,
+		Fset:     fset,
+		Files:    []*ast.File{file},
+		Report:   func(d analysis.Diagnostic) { diags = append(diags, d) },
+		ResultOf: map[*analysis.Analyzer]any{},
+	}
+	if _, err := az.Run(pass); err != nil {
+		t.Fatal(err)
+	}
+	return diags, fset
+}
+
+// The flagged // block sits on lines 4-7.
+const narrationSrc = `package b
+
+func f() {
+	// first line of narration
+	// second line of narration
+	// third line of narration
+	// fourth line of narration
+	_ = 0
+}
+`
+
+func TestBareCountAnchoredAtStart(t *testing.T) {
+	diags, fset := diagnosticsFor(t, narrationSrc, 3)
+	if len(diags) != 1 {
+		t.Fatalf("got %d diagnostics, want 1: %v", len(diags), diags)
+	}
+	d := diags[0]
+	if strings.Contains(d.Message, "\n") {
+		t.Errorf("message must stay single-line, got %q", d.Message)
+	}
+	if want := "comment block is 4 lines (max 3)"; d.Message != want {
+		t.Errorf("message = %q, want %q", d.Message, want)
+	}
+	if line := fset.Position(d.Pos).Line; line != 4 {
+		t.Errorf("anchored at line %d, want 4 (first line of the block)", line)
+	}
+}
+
+// TestBlockCommentCounted covers a /* */ block: one ast.Comment spanning four
+// physical lines, counted and reported at its first line.
+func TestBlockCommentCounted(t *testing.T) {
 	const src = `package b
 
 func tall() {
@@ -28,47 +82,15 @@ func tall() {
 	   line four */
 	_ = 0
 }
-
-func short() {
-	/* one liner */
-	_ = 0
-}
 `
-	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, "b.go", src, parser.ParseComments)
-	if err != nil {
-		t.Fatal(err)
+	diags, fset := diagnosticsFor(t, src, 3)
+	if len(diags) != 1 {
+		t.Fatalf("got %d diagnostics, want 1: %v", len(diags), diags)
 	}
-
-	var msgs []string
-	pass := &analysis.Pass{
-		Analyzer: commentsize.New(3),
-		Fset:     fset,
-		Files:    []*ast.File{file},
-		Report:   func(d analysis.Diagnostic) { msgs = append(msgs, d.Message) },
-		ResultOf: map[*analysis.Analyzer]any{},
+	if want := "comment block is 4 lines (max 3)"; diags[0].Message != want {
+		t.Errorf("message = %q, want %q", diags[0].Message, want)
 	}
-	if _, err := commentsize.New(3).Run(pass); err != nil {
-		t.Fatal(err)
+	if line := fset.Position(diags[0].Pos).Line; line != 4 {
+		t.Errorf("anchored at line %d, want 4", line)
 	}
-	if len(msgs) != 1 {
-		t.Fatalf("got %d diagnostics, want 1: %v", len(msgs), msgs)
-	}
-	if want := "comment block is 4 lines (max 3)"; !contains(msgs[0], want) {
-		t.Errorf("message %q does not contain %q", msgs[0], want)
-	}
-	for _, line := range []string{"line one", "line four */"} {
-		if !contains(msgs[0], line) {
-			t.Errorf("message %q does not echo comment line %q", msgs[0], line)
-		}
-	}
-}
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }

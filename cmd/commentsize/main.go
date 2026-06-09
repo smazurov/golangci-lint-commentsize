@@ -4,11 +4,10 @@
 //
 //	go build -o commentsize ./cmd/commentsize
 //	go vet -vettool=$(pwd)/commentsize ./...
-//	go vet -vettool=$(pwd)/commentsize -commentsize.max-lines=8 ./...
 //
-// Or directly:
+// Or directly, overriding the budget:
 //
-//	go run ./cmd/commentsize -max-lines=8 ./...
+//	go run ./cmd/commentsize -max-lines=3 ./...
 package main
 
 import (

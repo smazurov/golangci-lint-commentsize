@@ -9,19 +9,24 @@ package commentsize
 
 import (
 	"go/ast"
-	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
 
-// Default line budget for a non-doc comment block before it is flagged.
+// DefaultMaxLines is the line budget used when New is given maxLines <= 0.
 const DefaultMaxLines = 6
 
-// New returns an analyzer that flags any non-doc comment block spanning more
-// than maxLines source lines. A maxLines <= 0 falls back to DefaultMaxLines.
+// New returns an analyzer that flags any non-doc comment block taller than
+// maxLines source lines. maxLines <= 0 falls back to DefaultMaxLines.
 //
-// The budget is also exposed as a -max-lines flag on the analyzer, so a
-// standalone singlechecker/go vet build can override it without recompiling.
+// The diagnostic anchors at the comment's first line with a single-line,
+// bare-count message. It deliberately does not echo the comment text or set an
+// end position: golangci-lint discards analysis.Diagnostic.End (its buildIssues
+// keeps only the start Pos), so a range never reaches an annotation, and a
+// multi-line message would break the GitHub ::error:: command. The annotation
+// already sits on the comment, so the count is enough.
+//
+// maxLines is also exposed as a -max-lines flag for standalone go vet use.
 func New(maxLines int) *analysis.Analyzer {
 	if maxLines <= 0 {
 		maxLines = DefaultMaxLines
@@ -51,29 +56,11 @@ func (c *checker) run(pass *analysis.Pass) (any, error) {
 			start := pass.Fset.Position(cg.Pos()).Line
 			end := pass.Fset.Position(cg.End()).Line
 			if lines := end - start + 1; lines > c.maxLines {
-				pass.Reportf(cg.Pos(),
-					"comment block is %d lines (max %d): say WHY in one line, don't narrate — %s",
-					lines, c.maxLines, commentText(cg))
+				pass.Reportf(cg.Pos(), "comment block is %d lines (max %d)", lines, c.maxLines)
 			}
 		}
 	}
 	return nil, nil
-}
-
-// commentText echoes the block on a single line, keeping the // and /* */
-// markers. The diagnostic must stay single-line: golangci-lint forwards it to
-// the GitHub `::error::` command verbatim, which truncates at the first
-// newline, so a multi-line message would drop everything after line one from
-// the inline annotation. cg.Text() is also unsuitable — it strips markers and
-// reflows, hiding what the author actually wrote.
-func commentText(cg *ast.CommentGroup) string {
-	var lines []string
-	for _, c := range cg.List {
-		for _, ln := range strings.Split(c.Text, "\n") {
-			lines = append(lines, strings.TrimSpace(ln))
-		}
-	}
-	return strings.Join(lines, " ")
 }
 
 // docComments returns the set of CommentGroups that document a declaration.
