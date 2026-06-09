@@ -9,6 +9,7 @@ package commentsize
 
 import (
 	"go/ast"
+	"strings"
 
 	"golang.org/x/tools/go/analysis"
 )
@@ -51,12 +52,26 @@ func (c *checker) run(pass *analysis.Pass) (any, error) {
 			end := pass.Fset.Position(cg.End()).Line
 			if lines := end - start + 1; lines > c.maxLines {
 				pass.Reportf(cg.Pos(),
-					"comment block is %d lines (max %d): say WHY in one line, don't narrate",
-					lines, c.maxLines)
+					"comment block is %d lines (max %d): say WHY in one line, don't narrate\n%s",
+					lines, c.maxLines, commentText(cg))
 			}
 		}
 	}
 	return nil, nil
+}
+
+// commentText reproduces the block as written, keeping the // and /* */
+// markers. cg.Text() is unsuitable here: it strips markers and reflows, so it
+// would not echo the comment the author actually wrote.
+func commentText(cg *ast.CommentGroup) string {
+	var b strings.Builder
+	for i, c := range cg.List {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(c.Text)
+	}
+	return b.String()
 }
 
 // docComments returns the set of CommentGroups that document a declaration.

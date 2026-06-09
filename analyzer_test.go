@@ -57,6 +57,11 @@ func short() {
 	if want := "comment block is 4 lines (max 3)"; !contains(msgs[0], want) {
 		t.Errorf("message %q does not contain %q", msgs[0], want)
 	}
+	for _, line := range []string{"line one", "line four */"} {
+		if !contains(msgs[0], line) {
+			t.Errorf("message %q does not echo comment line %q", msgs[0], line)
+		}
+	}
 }
 
 func contains(s, sub string) bool {
