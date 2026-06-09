@@ -1,6 +1,6 @@
 module github.com/smazurov/golangci-lint-commentsize
 
-go 1.26.4
+go 1.25.0
 
 require (
 	github.com/golangci/plugin-module-register v0.1.2
