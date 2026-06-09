@@ -52,7 +52,7 @@ func (c *checker) run(pass *analysis.Pass) (any, error) {
 			end := pass.Fset.Position(cg.End()).Line
 			if lines := end - start + 1; lines > c.maxLines {
 				pass.Reportf(cg.Pos(),
-					"comment block is %d lines (max %d): say WHY in one line, don't narrate\n%s",
+					"comment block is %d lines (max %d): say WHY in one line, don't narrate — %s",
 					lines, c.maxLines, commentText(cg))
 			}
 		}
@@ -60,18 +60,20 @@ func (c *checker) run(pass *analysis.Pass) (any, error) {
 	return nil, nil
 }
 
-// commentText reproduces the block as written, keeping the // and /* */
-// markers. cg.Text() is unsuitable here: it strips markers and reflows, so it
-// would not echo the comment the author actually wrote.
+// commentText echoes the block on a single line, keeping the // and /* */
+// markers. The diagnostic must stay single-line: golangci-lint forwards it to
+// the GitHub `::error::` command verbatim, which truncates at the first
+// newline, so a multi-line message would drop everything after line one from
+// the inline annotation. cg.Text() is also unsuitable — it strips markers and
+// reflows, hiding what the author actually wrote.
 func commentText(cg *ast.CommentGroup) string {
-	var b strings.Builder
-	for i, c := range cg.List {
-		if i > 0 {
-			b.WriteByte('\n')
+	var lines []string
+	for _, c := range cg.List {
+		for _, ln := range strings.Split(c.Text, "\n") {
+			lines = append(lines, strings.TrimSpace(ln))
 		}
-		b.WriteString(c.Text)
 	}
-	return b.String()
+	return strings.Join(lines, " ")
 }
 
 // docComments returns the set of CommentGroups that document a declaration.
